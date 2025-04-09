@@ -27,15 +27,37 @@ function App() {
 
   // Enhanced security measures
   useEffect(() => {
-    // Handle print attempts
-    const handleBeforePrint = () => {
+    // Handle print attempts - unified handler
+    const handlePrintAttempt = () => {
+      console.log("Print attempt detected");
       setPrintAttempted(true);
       setSecurityNotice("Print attempt detected. Watermark applied.");
       
-      // Schedule watermark removal after print dialog closes
+      // Override print functionality
+      const originalPrint = window.print;
+      window.print = () => {
+        console.log("Print intercepted");
+        // Do nothing or show watermark
+      };
+      
+      // Schedule watermark removal and restore print function
       setTimeout(() => {
         setPrintAttempted(false);
+        window.print = originalPrint;
       }, 1000);
+      
+      // Return false to prevent default print behavior
+      return false;
+    };
+    
+    // Use both beforeprint event and override window.print
+    window.addEventListener('beforeprint', handlePrintAttempt);
+    
+    // Override print function directly
+    const originalPrint = window.print;
+    window.print = () => {
+      handlePrintAttempt();
+      // Don't call original print
     };
     
     // Block keyboard shortcuts
@@ -47,7 +69,7 @@ function App() {
         
         // If it's a print shortcut (Ctrl+P), show watermark
         if (e.key === 'p') {
-          handleBeforePrint();
+          handlePrintAttempt();
         } else {
           setSecurityNotice("Keyboard shortcuts are disabled for this content.");
         }
@@ -60,19 +82,184 @@ function App() {
       setSecurityNotice("Right-click is disabled for this content.");
     };
     
+    // Prevent iframe access for added security
+    const preventIframeAccess = () => {
+      const iframes = document.querySelectorAll('iframe');
+      iframes.forEach(iframe => {
+        if (iframe.contentWindow) {
+          try {
+            // Add CSS to prevent selection
+            const style = document.createElement('style');
+            style.textContent = `
+              * {
+                -webkit-user-select: none !important;
+                -moz-user-select: none !important;
+                -ms-user-select: none !important;
+                user-select: none !important;
+              }
+            `;
+            iframe.contentDocument?.head.appendChild(style);
+            
+            // Block print in iframe
+            if (iframe.contentWindow.print) {
+              iframe.contentWindow.print = function() {
+                console.log("Print attempt in iframe blocked");
+                return false;
+              };
+            }
+          } catch (e) {
+            // Cross-origin restrictions may prevent this
+            console.log("Cannot access iframe content due to security restrictions");
+          }
+        }
+      });
+    };
+    
+    // Add MutationObserver to handle dynamically added iframes
+    const observer = new MutationObserver((mutations) => {
+      mutations.forEach((mutation) => {
+        if (mutation.addedNodes.length) {
+          preventIframeAccess();
+        }
+      });
+    });
+    
+    observer.observe(document.body, { childList: true, subtree: true });
+    
     // Add event listeners
-    window.addEventListener('beforeprint', handleBeforePrint);
+    window.addEventListener('beforeprint', handlePrintAttempt);
     window.addEventListener('keydown', blockShortcuts);
     document.addEventListener('contextmenu', blockContextMenu);
     
+    // Initial iframe security
+    preventIframeAccess();
+    
     // Cleanup
     return () => {
-      window.removeEventListener('beforeprint', handleBeforePrint);
+      window.removeEventListener('beforeprint', handlePrintAttempt);
       window.removeEventListener('keydown', blockShortcuts);
       document.removeEventListener('contextmenu', blockContextMenu);
+      window.print = originalPrint;
+      observer.disconnect();
     };
   }, []);
 
+  // PDF Viewer Component with watermark protection
+  const PDFViewer = () => {
+    return (
+      <div className="space-y-4">
+        <div 
+          ref={pdfContainerRef}
+          className="relative aspect-[4/3] rounded-lg overflow-hidden shadow-md border border-gray-200"
+        >
+          {/* PDF container with CSS print protection */}
+          <div className="w-full h-full relative">
+            {/* Original PDF iframe - will be visible in normal view */}
+            <iframe
+              className={`w-full h-full ${printAttempted ? 'invisible' : 'visible'}`}
+              src="/sample.pdf#toolbar=0&navpanes=0&scrollbar=0"
+              title="PDF document"
+              style={{
+                WebkitUserSelect: 'none',
+                MozUserSelect: 'none',
+                msUserSelect: 'none',
+                userSelect: 'none',
+              }}
+            ></iframe>
+            
+            {/* Always present overlay (invisible normally, appears when printing) */}
+            <div 
+              className="absolute inset-0 bg-black flex flex-col items-center justify-center overscroll-auto"
+              style={{
+                opacity: printAttempted ? 1 : 0,
+                transition: 'opacity 0.3s ease',
+                // Special CSS that only appears when printing
+                '@media print': {
+                  display: 'flex !important',
+                  opacity: '1 !important',
+                  zIndex: 9999,
+                  backgroundColor: 'black !important',
+                  color: 'white !important',
+                }
+              }}
+            >
+              <Printer className="w-16 h-16 mx-auto mb-4 text-white" />
+              <div className="text-4xl font-bold text-white mb-4">
+                PRINTING BLOCKED
+              </div>
+              <div className="text-xl text-white text-center max-w-lg px-6">
+                This document is protected against unauthorized printing or downloading.
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <div className="flex justify-between items-center">
+          <div className="bg-amber-50 p-4 rounded-lg border border-amber-200 text-sm text-amber-800 flex-1">
+            <div className="flex items-start">
+              <AlertTriangle className="w-5 h-5 mr-2 mt-0.5 flex-shrink-0" />
+              <div>
+                <p className="font-medium">Print Protection Active</p>
+                <p className="mt-1">If you attempt to print this document, a watermark will be applied.</p>
+              </div>
+            </div>
+          </div>
+          
+          {/* Test button */}
+          <button 
+            onClick={() => {
+              setPrintAttempted(true);
+              setSecurityNotice("Print attempt detected. Watermark applied.");
+              setTimeout(() => setPrintAttempted(false), 3000);
+            }}
+            className="ml-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center"
+          >
+            <Printer className="w-4 h-4 mr-2" />
+            Test Print Protection
+          </button>
+        </div>
+        
+        {/* Add print CSS for additional protection */}
+        <style>{`
+          @media print {
+            /* Hide actual content when printing */
+            iframe { 
+              display: none !important; 
+            }
+            
+            /* Show watermark */
+            .print-watermark {
+              display: block !important;
+              position: fixed;
+              top: 0;
+              left: 0;
+              width: 100%;
+              height: 100%;
+              background-color: black;
+              color: white;
+              z-index: 9999;
+              display: flex;
+              flex-direction: column;
+              align-items: center;
+              justify-content: center;
+            }
+          }
+        `}</style>
+        
+        {/* Hidden div that appears only when printing */}
+        <div className="print-watermark" style={{ display: 'none' }}>
+          <Printer className="w-16 h-16 mb-4" />
+          <div className="text-4xl font-bold mb-4">PRINTING BLOCKED</div>
+          <div className="text-xl text-center max-w-lg px-6">
+            This document is protected against unauthorized printing or downloading.
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // Rest of your code remains the same...
+  
   // Auto-dismiss security notice
   useEffect(() => {
     if (securityNotice) {
@@ -107,75 +294,6 @@ function App() {
   const isCorrect = (questionId: string, option: string) => {
     const question = questions.find(q => q.id === questionId);
     return question?.correct === option;
-  };
-
-  // Simulate print to test watermark
-  const simulatePrint = () => {
-    handlePrintAttempt();
-  };
-
-  // Handle print attempt
-  const handlePrintAttempt = () => {
-    setPrintAttempted(true);
-    setSecurityNotice("Print attempt detected. Watermark applied.");
-    
-    // Schedule watermark removal after a short delay
-    setTimeout(() => {
-      setPrintAttempted(false);
-    }, 3000);
-  };
-
-  // PDF Viewer Component with watermark protection
-  const PDFViewer = () => {
-    return (
-      <div className="space-y-4">
-        <div 
-          ref={pdfContainerRef}
-          className="relative aspect-[4/3] rounded-lg overflow-hidden shadow-md border border-gray-200"
-        >
-          {/* Original PDF iframe - will be visible in normal view */}
-          <iframe
-            className={`w-full h-full ${printAttempted ? 'hidden' : 'block'}`}
-            src="/sample.pdf#toolbar=0"
-            title="PDF document"
-          ></iframe>
-          
-          {/* Watermark that appears when printing is attempted */}
-          {printAttempted && (
-            <div className="absolute inset-0 bg-black flex flex-col items-center justify-center z-50">
-              <div className="text-4xl font-bold text-white mb-4">
-                <Printer className="w-16 h-16 mx-auto mb-4" />
-                PRINTING BLOCKED
-              </div>
-              <div className="text-xl text-white text-center max-w-lg px-6">
-                This document is protected against unauthorized printing or downloading.
-              </div>
-            </div>
-          )}
-        </div>
-        
-        <div className="flex justify-between items-center">
-          <div className="bg-amber-50 p-4 rounded-lg border border-amber-200 text-sm text-amber-800 flex-1">
-            <div className="flex items-start">
-              <AlertTriangle className="w-5 h-5 mr-2 mt-0.5 flex-shrink-0" />
-              <div>
-                <p className="font-medium">Print Protection Active</p>
-                <p className="mt-1">If you attempt to print this document, a watermark will be applied.</p>
-              </div>
-            </div>
-          </div>
-          
-          {/* Test button - for demonstration purposes */}
-          <button 
-            onClick={simulatePrint}
-            className="ml-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center"
-          >
-            <Printer className="w-4 h-4 mr-2" />
-            Test Print Protection
-          </button>
-        </div>
-      </div>
-    );
   };
 
   return (
@@ -364,11 +482,6 @@ function App() {
               </div>
             )}
           </div>
-        </div>
-
-        {/* Footer */}
-        <div className="text-center text-gray-500 text-sm mt-6">
-          <p>© {new Date().getFullYear()} Secure Content Viewer. All rights reserved.</p>
         </div>
       </div>
     </div>

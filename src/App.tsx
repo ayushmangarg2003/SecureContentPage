@@ -1,10 +1,13 @@
-import React, { useState } from 'react';
-import { Shield, Youtube, CheckCircle, XCircle, Lock, FileText, BookOpen } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Shield, Youtube, CheckCircle, XCircle, Lock, FileText, BookOpen, AlertTriangle, Printer } from 'lucide-react';
 
 function App() {
   const [selectedAnswers, setSelectedAnswers] = useState<Record<string, string>>({});
   const [submitted, setSubmitted] = useState(false);
   const [activeTab, setActiveTab] = useState('video');
+  const [securityNotice, setSecurityNotice] = useState<string | null>(null);
+  const [printAttempted, setPrintAttempted] = useState(false);
+  const pdfContainerRef = useRef<HTMLDivElement>(null);
   
   // Sample MCQ questions
   const questions = [
@@ -21,6 +24,64 @@ function App() {
       correct: 'Mars'
     }
   ];
+
+  // Enhanced security measures
+  useEffect(() => {
+    // Handle print attempts
+    const handleBeforePrint = () => {
+      setPrintAttempted(true);
+      setSecurityNotice("Print attempt detected. Watermark applied.");
+      
+      // Schedule watermark removal after print dialog closes
+      setTimeout(() => {
+        setPrintAttempted(false);
+      }, 1000);
+    };
+    
+    // Block keyboard shortcuts
+    const blockShortcuts = (e: KeyboardEvent) => {
+      // Block print, save, and copy shortcuts
+      if ((e.ctrlKey || e.metaKey) && 
+          (e.key === 'p' || e.key === 's' || e.key === 'c')) {
+        e.preventDefault();
+        
+        // If it's a print shortcut (Ctrl+P), show watermark
+        if (e.key === 'p') {
+          handleBeforePrint();
+        } else {
+          setSecurityNotice("Keyboard shortcuts are disabled for this content.");
+        }
+      }
+    };
+    
+    // Block right-click
+    const blockContextMenu = (e: MouseEvent) => {
+      e.preventDefault();
+      setSecurityNotice("Right-click is disabled for this content.");
+    };
+    
+    // Add event listeners
+    window.addEventListener('beforeprint', handleBeforePrint);
+    window.addEventListener('keydown', blockShortcuts);
+    document.addEventListener('contextmenu', blockContextMenu);
+    
+    // Cleanup
+    return () => {
+      window.removeEventListener('beforeprint', handleBeforePrint);
+      window.removeEventListener('keydown', blockShortcuts);
+      document.removeEventListener('contextmenu', blockContextMenu);
+    };
+  }, []);
+
+  // Auto-dismiss security notice
+  useEffect(() => {
+    if (securityNotice) {
+      const timer = setTimeout(() => {
+        setSecurityNotice(null);
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [securityNotice]);
 
   // Handle answer selection
   const handleAnswerSelect = (questionId: string, answer: string) => {
@@ -48,18 +109,92 @@ function App() {
     return question?.correct === option;
   };
 
+  // Simulate print to test watermark
+  const simulatePrint = () => {
+    handlePrintAttempt();
+  };
+
+  // Handle print attempt
+  const handlePrintAttempt = () => {
+    setPrintAttempted(true);
+    setSecurityNotice("Print attempt detected. Watermark applied.");
+    
+    // Schedule watermark removal after a short delay
+    setTimeout(() => {
+      setPrintAttempted(false);
+    }, 3000);
+  };
+
+  // PDF Viewer Component with watermark protection
+  const PDFViewer = () => {
+    return (
+      <div className="space-y-4">
+        <div 
+          ref={pdfContainerRef}
+          className="relative aspect-[4/3] rounded-lg overflow-hidden shadow-md border border-gray-200"
+        >
+          {/* Original PDF iframe - will be visible in normal view */}
+          <iframe
+            className={`w-full h-full ${printAttempted ? 'hidden' : 'block'}`}
+            src="/sample.pdf#toolbar=0"
+            title="PDF document"
+          ></iframe>
+          
+          {/* Watermark that appears when printing is attempted */}
+          {printAttempted && (
+            <div className="absolute inset-0 bg-black flex flex-col items-center justify-center z-50">
+              <div className="text-4xl font-bold text-white mb-4">
+                <Printer className="w-16 h-16 mx-auto mb-4" />
+                PRINTING BLOCKED
+              </div>
+              <div className="text-xl text-white text-center max-w-lg px-6">
+                This document is protected against unauthorized printing or downloading.
+              </div>
+            </div>
+          )}
+        </div>
+        
+        <div className="flex justify-between items-center">
+          <div className="bg-amber-50 p-4 rounded-lg border border-amber-200 text-sm text-amber-800 flex-1">
+            <div className="flex items-start">
+              <AlertTriangle className="w-5 h-5 mr-2 mt-0.5 flex-shrink-0" />
+              <div>
+                <p className="font-medium">Print Protection Active</p>
+                <p className="mt-1">If you attempt to print this document, a watermark will be applied.</p>
+              </div>
+            </div>
+          </div>
+          
+          {/* Test button - for demonstration purposes */}
+          <button 
+            onClick={simulatePrint}
+            className="ml-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center"
+          >
+            <Printer className="w-4 h-4 mr-2" />
+            Test Print Protection
+          </button>
+        </div>
+      </div>
+    );
+  };
+
   return (
-    <div 
-      className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-200 p-4 md:p-8"
-      onContextMenu={(e) => e.preventDefault()}
-      onKeyDown={(e) => {
-        if ((e.ctrlKey || e.metaKey) && 
-            (e.key === 'p' || e.key === 's' || e.key === 'c')) {
-          e.preventDefault();
-        }
-      }}
-    >
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-200 p-4 md:p-8">
       <div className="max-w-4xl mx-auto space-y-6">
+        {/* Security Notice Toast */}
+        {securityNotice && (
+          <div className="fixed top-6 right-6 z-50 bg-red-100 border-l-4 border-red-500 text-red-700 p-4 rounded shadow-lg max-w-sm">
+            <div className="flex">
+              <div className="flex-shrink-0">
+                <AlertTriangle className="h-5 w-5 text-red-500" />
+              </div>
+              <div className="ml-3">
+                <p className="text-sm font-medium">{securityNotice}</p>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Header */}
         <div className="flex items-center justify-between bg-white p-5 rounded-xl shadow-lg border-l-4 border-blue-600">
           <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
@@ -129,21 +264,8 @@ function App() {
               </div>
             )}
 
-            {/* PDF Viewer Section */}
-            {activeTab === 'pdf' && (
-              <div className="space-y-4">
-                <div className="relative aspect-[4/3] rounded-lg overflow-hidden shadow-md border border-gray-200">
-                  <iframe
-                    className="w-full h-full"
-                    src="/sample.pdf#toolbar=0"
-                    title="PDF document"
-                  ></iframe>
-                </div>
-                <div className="bg-blue-50 p-4 rounded-lg border border-blue-100 text-sm text-blue-800">
-                  <p className="font-medium">Note: This PDF content is protected and cannot be printed or downloaded.</p>
-                </div>
-              </div>
-            )}
+            {/* PDF Viewer Section with watermark protection */}
+            {activeTab === 'pdf' && <PDFViewer />}
 
             {/* MCQ Section */}
             {activeTab === 'quiz' && (
